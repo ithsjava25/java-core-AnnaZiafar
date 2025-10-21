@@ -5,7 +5,64 @@ import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
+final class Category{
+    private final String name;
+    private static final Map<String, Category> categoryCache = new ConcurrentHashMap<>();
+
+    public static Category of(String name){
+        validateCategory(name);
+        name = name.substring(0,1).toUpperCase() + name.substring(1).toLowerCase();
+
+        return categoryCache.computeIfAbsent(name, Category::new);
+    }
+
+    private Category(String name) {
+        this.name = name;
+    }
+
+    private static void validateCategory(String name){
+        if (name == null){
+            throw new IllegalArgumentException("Category name can't be null");
+        }
+
+        if (name.isBlank()){
+            throw new IllegalArgumentException("Category name can't be blank.");
+        }
+    }
+}
+
+abstract class Product{
+    private UUID id;
+    private String name;
+    private Category category;
+    private BigDecimal price;
+
+    public UUID uuid() {
+        return id;
+    }
+
+    public String name() {
+        return name;
+    }
+
+    public Category category() {
+        return category;
+    }
+
+    public BigDecimal price() {
+        return price;
+    }
+
+    public void price(BigDecimal price) {
+        this.price = price;
+    }
+
+    abstract String productDetails();
+
+}
 
 /**
  * Analyzer class that provides advanced warehouse operations.
