@@ -12,6 +12,10 @@ final class Category{
     private final String name;
     private static final Map<String, Category> categoryCache = new ConcurrentHashMap<>();
 
+    public String getName() {
+        return name;
+    }
+
     public static Category of(String name){
         validateCategory(name);
         name = name.substring(0,1).toUpperCase() + name.substring(1).toLowerCase();
@@ -62,6 +66,30 @@ abstract class Product{
 
     abstract String productDetails();
 
+}
+
+class FoodProduct extends Product{
+    private LocalDate expirationDate;
+    private BigDecimal weight;
+
+    public LocalDate getExpirationDate() {
+        return expirationDate;
+    }
+
+    public BigDecimal getWeight() {
+        return weight;
+    }
+
+    private void validateFoodProduct(LocalDate expirationDate, BigDecimal weight){
+        if (weight < 0){
+            throw new IllegalArgumentException("Weight cannot be negative.");
+        }
+    }
+
+    @Override
+    String productDetails() {
+        return "";
+    }
 }
 
 /**
