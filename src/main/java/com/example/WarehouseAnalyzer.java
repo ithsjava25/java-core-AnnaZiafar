@@ -1,20 +1,32 @@
 package com.example;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-final class Category{
+interface Shippable{
+    BigDecimal calculateShippingCost();
+    BigDecimal weight();
+}
+
+
+interface Perishable{
+    LocalDate expirationDate();
+
+    default boolean isExpired(){
+        LocalDate expires = expirationDate();
+        LocalDate today = LocalDate.now();
+
+        return expires.isBefore(today);
+    }
+}
+
+class Category{
     private final String name;
     private static final Map<String, Category> categoryCache = new ConcurrentHashMap<>();
-
-    public String getName() {
-        return name;
-    }
 
     public static Category of(String name){
         validateCategory(name);
@@ -27,22 +39,32 @@ final class Category{
         this.name = name;
     }
 
+    public String categoryName() {
+        return name;
+    }
+
     private static void validateCategory(String name){
         if (name == null){
-            throw new IllegalArgumentException("Category name can't be null");
-        }
-
-        if (name.isBlank()){
+            throw new IllegalArgumentException("Category name can't be null.");
+        } else if (name.isBlank()){
             throw new IllegalArgumentException("Category name can't be blank.");
         }
     }
+
 }
 
-abstract class Product{
-    private UUID id;
-    private String name;
-    private Category category;
+abstract class Product {
+    private final UUID id;
+    private final String name;
+    private final Category category;
     private BigDecimal price;
+
+    public Product(UUID id, String name, Category category, BigDecimal price){
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.price = price;
+    }
 
     public UUID uuid() {
         return id;
@@ -68,29 +90,175 @@ abstract class Product{
 
 }
 
-class FoodProduct extends Product{
-    private LocalDate expirationDate;
-    private BigDecimal weight;
+class FoodProduct extends Product implements Perishable, Shippable{
+    private final LocalDate expirationDate;
+    private final BigDecimal weight;
 
-    public LocalDate getExpirationDate() {
+    public FoodProduct(UUID id, String name, Category category, BigDecimal price, LocalDate expirationDate, BigDecimal weight){
+        super(id, name, category, price);
+
+        this.expirationDate = expirationDate;
+        this.weight = weight;
+
+        validateFoodProduct(price, weight);
+    }
+
+    private void validateFoodProduct(BigDecimal price, BigDecimal weight){
+        if (price.signum() == -1){
+            throw new IllegalArgumentException("Price cannot be negative.");
+        }
+
+        if (weight.signum() == -1){
+            throw new IllegalArgumentException("Weight cannot be negative.");
+        }
+
+    }
+
+    public BigDecimal calculateShippingCost(){
+        BigDecimal multiplyWeight = new BigDecimal(50);
+        return weight().multiply(multiplyWeight);
+    }
+
+    @Override
+    public LocalDate expirationDate() {
+        if (isExpired()){
+            System.out.println("Product expired: " + expirationDate);
+        }
         return expirationDate;
     }
 
-    public BigDecimal getWeight() {
-        return weight;
-    }
-
-    private void validateFoodProduct(LocalDate expirationDate, BigDecimal weight){
-        if (weight < 0){
-            throw new IllegalArgumentException("Weight cannot be negative.");
-        }
+    @Override
+    public BigDecimal weight() {
+        return weight();
     }
 
     @Override
     String productDetails() {
-        return "";
+        return "Food: " + name() + ", Expires: " + expirationDate();
     }
 }
+
+class ElectronicsProduct extends Product implements Shippable{
+    private final int warrantyMonths;
+    private final BigDecimal weight;
+
+    private void warrantyValidation(){
+        if (warrantyMonths < 0)
+            throw new IllegalArgumentException("Warranty months cannot be negative.");
+    }
+
+    public ElectronicsProduct(UUID id, String name, Category category, BigDecimal price, int warrantyMonths, BigDecimal weight){
+        super(id, name, category, price);
+        this.warrantyMonths = warrantyMonths;
+        this.weight = weight;
+
+        warrantyValidation();
+    }
+
+    public int warrantyMonths() {
+        return warrantyMonths;
+    }
+
+    @Override
+    public BigDecimal weight() {
+        return weight;
+    }
+
+    @Override
+    String productDetails() {
+        return "Electronics: " + name() + ", Warranty: " + warrantyMonths();
+    }
+
+    @Override
+    public BigDecimal calculateShippingCost() {
+        BigDecimal weightLimit = new BigDecimal(5);
+        BigDecimal baseCost = new BigDecimal(79);
+        BigDecimal extraCost = new BigDecimal(49);
+
+        if(weight().compareTo(weightLimit) > 0){
+            return baseCost.add(extraCost);
+        }
+        return baseCost;
+    }
+}
+
+class Warehouse{
+    private static final Map<String, Warehouse> warehouse = new HashMap<>();
+    private final List<Product> listOfProducts = new ArrayList<>();
+
+    public void addProduct(Product product){
+        this.listOfProducts.add(product);
+        validateProduct(product);
+    }
+
+    public void remove(UUID id){
+        Optional<Product> removeProduct = getProductById(id);
+        removeProduct.ifPresent(listOfProducts::remove);
+    }
+
+    public Optional<Product> getProductById(UUID id){
+        return listOfProducts.stream()
+                .filter(product -> product.uuid().equals(id))
+                .findFirst();
+    }
+
+    public List<Product> getProducts(){
+        return Collections.unmodifiableList(listOfProducts);
+    }
+
+    public List<Perishable> expiredProducts(){
+        return this.listOfProducts.stream()
+                .filter(product -> product instanceof Perishable)
+                .filter(product -> ((Perishable) product).isExpired())
+                .map(product -> (Perishable) product)
+                .toList();
+    }
+
+    public List<Shippable> shippableProducts(){
+        return this.listOfProducts.stream()
+                .filter(product -> product instanceof Shippable)
+                .map(product -> (Shippable) product)
+                .toList();
+    }
+
+//    public List<Product> getChangedProducts(){
+//
+//    }
+
+    public void updateProductPrice(UUID id, BigDecimal newPrice){
+        Optional<Product> updateProduct = getProductById(id);
+        updateProduct.ifPresent(product -> product.price(newPrice));
+        validateID(id);
+    }
+
+    public void validateID(UUID id){
+        Optional<Product> doesIdExist = getProductById(id);
+        if(doesIdExist.isEmpty()){
+            throw new NoSuchElementException("Product not found with id: " + id);
+        }
+    }
+
+    public void validateProduct(Product product){
+        if(product == null){
+            throw new IllegalArgumentException("Product cannot be null.");
+        }
+    }
+
+    public static Warehouse getInstance(){
+        return getInstance("Default warehouse");
+    }
+
+    public static Warehouse getInstance(String name){
+        if (name == null || name.isBlank()){
+            throw new IllegalArgumentException("You must choose a name for the warehouse.");
+        }
+        return warehouse.computeIfAbsent(name, key -> new Warehouse());
+    }
+
+    private Warehouse(){}
+
+}
+
 
 /**
  * Analyzer class that provides advanced warehouse operations.
