@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 
 interface Shippable{
     BigDecimal calculateShippingCost();
-    BigDecimal weight();
+    double weight();
 }
 
 
@@ -17,10 +17,7 @@ interface Perishable{
     LocalDate expirationDate();
 
     default boolean isExpired(){
-        LocalDate expires = expirationDate();
-        LocalDate today = LocalDate.now();
-
-        return expires.isBefore(today);
+        return expirationDate().isBefore(LocalDate.now());
     }
 }
 
@@ -39,15 +36,15 @@ class Category{
         this.name = name;
     }
 
-    public String categoryName() {
+    public String getName() {
         return name;
     }
 
     private static void validateCategory(String name){
         if (name == null){
-            throw new IllegalArgumentException("Category name can't be null.");
+            throw new IllegalArgumentException("Category name can't be null");
         } else if (name.isBlank()){
-            throw new IllegalArgumentException("Category name can't be blank.");
+            throw new IllegalArgumentException("Category name can't be blank");
         }
     }
 
@@ -116,20 +113,17 @@ class FoodProduct extends Product implements Perishable, Shippable{
 
     public BigDecimal calculateShippingCost(){
         BigDecimal multiplyWeight = new BigDecimal(50);
-        return weight().multiply(multiplyWeight);
+        return this.weight.multiply(multiplyWeight);
     }
 
     @Override
     public LocalDate expirationDate() {
-        if (isExpired()){
-            System.out.println("Product expired: " + expirationDate);
-        }
         return expirationDate;
     }
 
     @Override
-    public BigDecimal weight() {
-        return weight();
+    public double weight() {
+        return weight.doubleValue();
     }
 
     @Override
@@ -160,13 +154,13 @@ class ElectronicsProduct extends Product implements Shippable{
     }
 
     @Override
-    public BigDecimal weight() {
-        return weight;
+    public double weight() {
+        return weight.doubleValue();
     }
 
     @Override
     String productDetails() {
-        return "Electronics: " + name() + ", Warranty: " + warrantyMonths();
+        return "Electronics: " + name() + ", Warranty: " + warrantyMonths() + " months";
     }
 
     @Override
@@ -175,7 +169,7 @@ class ElectronicsProduct extends Product implements Shippable{
         BigDecimal baseCost = new BigDecimal(79);
         BigDecimal extraCost = new BigDecimal(49);
 
-        if(weight().compareTo(weightLimit) > 0){
+        if(weight.compareTo(weightLimit) > 0){
             return baseCost.add(extraCost);
         }
         return baseCost;
@@ -185,15 +179,32 @@ class ElectronicsProduct extends Product implements Shippable{
 class Warehouse{
     private static final Map<String, Warehouse> warehouse = new HashMap<>();
     private final List<Product> listOfProducts = new ArrayList<>();
+    private final List<Product> changedProducts = new ArrayList<>();
 
     public void addProduct(Product product){
-        this.listOfProducts.add(product);
         validateProduct(product);
+        if(doesIdExist(product.uuid()))
+            throw new IllegalArgumentException("Product with that id already exists, use updateProduct for updates.");
+
+        listOfProducts.add(product);
     }
 
     public void remove(UUID id){
         Optional<Product> removeProduct = getProductById(id);
         removeProduct.ifPresent(listOfProducts::remove);
+    }
+
+    public void clearProducts(){
+        warehouse.clear();
+    }
+
+    public boolean isEmpty(){
+        return warehouse.isEmpty();
+    }
+
+    public Map<Category, List<Product>> getProductsGroupedByCategories(){
+        return listOfProducts.stream()
+                .collect(Collectors.groupingBy(Product::category));
     }
 
     public Optional<Product> getProductById(UUID id){
@@ -207,7 +218,7 @@ class Warehouse{
     }
 
     public List<Perishable> expiredProducts(){
-        return this.listOfProducts.stream()
+        return listOfProducts.stream()
                 .filter(product -> product instanceof Perishable)
                 .filter(product -> ((Perishable) product).isExpired())
                 .map(product -> (Perishable) product)
@@ -215,27 +226,30 @@ class Warehouse{
     }
 
     public List<Shippable> shippableProducts(){
-        return this.listOfProducts.stream()
+        return listOfProducts.stream()
                 .filter(product -> product instanceof Shippable)
                 .map(product -> (Shippable) product)
                 .toList();
     }
 
-//    public List<Product> getChangedProducts(){
-//
-//    }
-
-    public void updateProductPrice(UUID id, BigDecimal newPrice){
-        Optional<Product> updateProduct = getProductById(id);
-        updateProduct.ifPresent(product -> product.price(newPrice));
-        validateID(id);
+    public List<Product> getChangedProducts(){
+        return Collections.unmodifiableList(changedProducts);
     }
 
-    public void validateID(UUID id){
-        Optional<Product> doesIdExist = getProductById(id);
-        if(doesIdExist.isEmpty()){
+    public void updateProductPrice(UUID id, BigDecimal newPrice){
+        if(!doesIdExist(id))
             throw new NoSuchElementException("Product not found with id: " + id);
-        }
+
+        Optional<Product> updateProduct = getProductById(id);
+        updateProduct.ifPresent(product -> {
+            product.price(newPrice);
+            changedProducts.add(product);
+        });
+    }
+
+    public boolean doesIdExist(UUID id){
+        Optional<Product> product = getProductById(id);
+        return product.isPresent();
     }
 
     public void validateProduct(Product product){
