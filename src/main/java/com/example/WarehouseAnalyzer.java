@@ -1,6 +1,7 @@
 package com.example;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
@@ -93,7 +94,6 @@ class FoodProduct extends Product implements Perishable, Shippable{
 
     public FoodProduct(UUID id, String name, Category category, BigDecimal price, LocalDate expirationDate, BigDecimal weight){
         super(id, name, category, price);
-
         this.expirationDate = expirationDate;
         this.weight = weight;
 
@@ -416,9 +416,15 @@ class WarehouseAnalyzer {
         List<Product> products = warehouse.getProducts();
         int n = products.size();
         if (n == 0) return List.of();
-        double sum = products.stream().map(Product::price).mapToDouble(bd -> bd.doubleValue()).sum();
+        List<Product> sortedProducts = products.stream()
+                .sorted(Comparator.comparing(Product::price))
+                .toList();
+        //Remove lowest and highest price to avoid outliers affecting mean
+        List<Product> robustProducts = sortedProducts.subList(1, products.size() - 1);
+        n = n - 2;
+        double sum = robustProducts.stream().map(Product::price).mapToDouble(BigDecimal::doubleValue).sum();
         double mean = sum / n;
-        double variance = products.stream()
+        double variance = robustProducts.stream()
                 .map(Product::price)
                 .mapToDouble(bd -> Math.pow(bd.doubleValue() - mean, 2))
                 .sum() / n;
@@ -443,7 +449,7 @@ class WarehouseAnalyzer {
      */
     public List<ShippingGroup> optimizeShippingGroups(BigDecimal maxWeightPerGroup) {
         double maxW = maxWeightPerGroup.doubleValue();
-        List<Shippable> items = warehouse.shippableProducts();
+        List<Shippable> items = new ArrayList<>(warehouse.shippableProducts());
         // Sort by descending weight (First-Fit Decreasing)
         items.sort((a, b) -> Double.compare(Objects.requireNonNullElse(b.weight(), 0.0), Objects.requireNonNullElse(a.weight(), 0.0)));
         List<List<Shippable>> bins = new ArrayList<>();
@@ -557,6 +563,8 @@ class WarehouseAnalyzer {
         Product cheapest = items.stream().min(Comparator.comparing(Product::price)).orElse(null);
         return new InventoryStatistics(totalProducts, totalValue, averagePrice, expiredCount, categoryCount, mostExpensive, cheapest);
     }
+
+
 }
 
 /**
