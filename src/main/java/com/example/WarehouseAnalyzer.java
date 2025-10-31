@@ -414,14 +414,17 @@ class WarehouseAnalyzer {
      */
     public List<Product> findPriceOutliers(double standardDeviations) {
         List<Product> products = warehouse.getProducts();
+        List<Product> robustProducts = products;
         int n = products.size();
         if (n == 0) return List.of();
-        List<Product> sortedProducts = products.stream()
-                .sorted(Comparator.comparing(Product::price))
-                .toList();
         //Remove lowest and highest price to avoid outliers affecting mean
-        List<Product> robustProducts = sortedProducts.subList(1, products.size() - 1);
-        n = n - 2;
+        if(n >= 3){
+            List<Product> sortedProducts = products.stream()
+                    .sorted(Comparator.comparing(Product::price))
+                    .toList();
+            robustProducts = sortedProducts.subList(1, products.size() - 1);
+            n = n - 2;
+        }
         double sum = robustProducts.stream().map(Product::price).mapToDouble(BigDecimal::doubleValue).sum();
         double mean = sum / n;
         double variance = robustProducts.stream()
