@@ -5,7 +5,274 @@ import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
+interface Shippable{
+    BigDecimal calculateShippingCost();
+    double weight();
+}
+
+
+interface Perishable{
+    LocalDate expirationDate();
+
+    default boolean isExpired(){
+        return expirationDate().isBefore(LocalDate.now());
+    }
+}
+
+class Category{
+    private final String name;
+    private static final Map<String, Category> categoryCache = new ConcurrentHashMap<>();
+
+    public static Category of(String name){
+        validateCategory(name);
+        name = name.substring(0,1).toUpperCase() + name.substring(1).toLowerCase();
+
+        return categoryCache.computeIfAbsent(name, Category::new);
+    }
+
+    private Category(String name) {
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    private static void validateCategory(String name){
+        if (name == null){
+            throw new IllegalArgumentException("Category name can't be null");
+        } else if (name.isBlank()){
+            throw new IllegalArgumentException("Category name can't be blank");
+        }
+    }
+
+}
+
+abstract class Product {
+    private final UUID id;
+    private final String name;
+    private final Category category;
+    private BigDecimal price;
+
+    public Product(UUID id, String name, Category category, BigDecimal price){
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.price = price;
+    }
+
+    public UUID uuid() {
+        return id;
+    }
+
+    public String name() {
+        return name;
+    }
+
+    public Category category() {
+        return category;
+    }
+
+    public BigDecimal price() {
+        return price;
+    }
+
+    public void price(BigDecimal price) {
+        this.price = price;
+    }
+
+    abstract String productDetails();
+
+}
+
+class FoodProduct extends Product implements Perishable, Shippable{
+    private final LocalDate expirationDate;
+    private final BigDecimal weight;
+
+    public FoodProduct(UUID id, String name, Category category, BigDecimal price, LocalDate expirationDate, BigDecimal weight){
+        super(id, name, category, price);
+        this.expirationDate = expirationDate;
+        this.weight = weight;
+
+        validateFoodProduct(price, weight);
+    }
+
+    private void validateFoodProduct(BigDecimal price, BigDecimal weight){
+        if (price.signum() == -1){
+            throw new IllegalArgumentException("Price cannot be negative.");
+        }
+
+        if (weight.signum() == -1){
+            throw new IllegalArgumentException("Weight cannot be negative.");
+        }
+
+    }
+
+    public BigDecimal calculateShippingCost(){
+        BigDecimal multiplyWeight = new BigDecimal(50);
+        return this.weight.multiply(multiplyWeight);
+    }
+
+    @Override
+    public LocalDate expirationDate() {
+        return expirationDate;
+    }
+
+    @Override
+    public double weight() {
+        return weight.doubleValue();
+    }
+
+    @Override
+    String productDetails() {
+        return "Food: " + name() + ", Expires: " + expirationDate();
+    }
+}
+
+class ElectronicsProduct extends Product implements Shippable{
+    private final int warrantyMonths;
+    private final BigDecimal weight;
+
+    private void warrantyValidation(){
+        if (warrantyMonths < 0)
+            throw new IllegalArgumentException("Warranty months cannot be negative.");
+    }
+
+    public ElectronicsProduct(UUID id, String name, Category category, BigDecimal price, int warrantyMonths, BigDecimal weight){
+        super(id, name, category, price);
+        this.warrantyMonths = warrantyMonths;
+        this.weight = weight;
+
+        warrantyValidation();
+    }
+
+    public int warrantyMonths() {
+        return warrantyMonths;
+    }
+
+    @Override
+    public double weight() {
+        return weight.doubleValue();
+    }
+
+    @Override
+    String productDetails() {
+        return "Electronics: " + name() + ", Warranty: " + warrantyMonths() + " months";
+    }
+
+    @Override
+    public BigDecimal calculateShippingCost() {
+        BigDecimal weightLimit = new BigDecimal(5);
+        BigDecimal baseCost = new BigDecimal(79);
+        BigDecimal extraCost = new BigDecimal(49);
+
+        if(weight.compareTo(weightLimit) > 0){
+            return baseCost.add(extraCost);
+        }
+        return baseCost;
+    }
+}
+
+class Warehouse{
+    private static final Map<String, Warehouse> warehouse = new HashMap<>();
+    private final List<Product> listOfProducts = new ArrayList<>();
+    private final List<Product> changedProducts = new ArrayList<>();
+
+    public void addProduct(Product product){
+        validateProduct(product);
+        if(doesIdExist(product.uuid()))
+            throw new IllegalArgumentException("Product with that id already exists, use updateProduct for updates.");
+
+        listOfProducts.add(product);
+    }
+
+    public void remove(UUID id){
+        Optional<Product> removeProduct = getProductById(id);
+        removeProduct.ifPresent(listOfProducts::remove);
+    }
+
+    public void clearProducts(){
+        warehouse.clear();
+    }
+
+    public boolean isEmpty(){
+        return warehouse.isEmpty();
+    }
+
+    public Map<Category, List<Product>> getProductsGroupedByCategories(){
+        return listOfProducts.stream()
+                .collect(Collectors.groupingBy(Product::category));
+    }
+
+    public Optional<Product> getProductById(UUID id){
+        return listOfProducts.stream()
+                .filter(product -> product.uuid().equals(id))
+                .findFirst();
+    }
+
+    public List<Product> getProducts(){
+        return Collections.unmodifiableList(listOfProducts);
+    }
+
+    public List<Perishable> expiredProducts(){
+        return listOfProducts.stream()
+                .filter(product -> product instanceof Perishable)
+                .filter(product -> ((Perishable) product).isExpired())
+                .map(product -> (Perishable) product)
+                .toList();
+    }
+
+    public List<Shippable> shippableProducts(){
+        return listOfProducts.stream()
+                .filter(product -> product instanceof Shippable)
+                .map(product -> (Shippable) product)
+                .toList();
+    }
+
+    public List<Product> getChangedProducts(){
+        return Collections.unmodifiableList(changedProducts);
+    }
+
+    public void updateProductPrice(UUID id, BigDecimal newPrice){
+        if(!doesIdExist(id))
+            throw new NoSuchElementException("Product not found with id: " + id);
+
+        Optional<Product> updateProduct = getProductById(id);
+        updateProduct.ifPresent(product -> {
+            product.price(newPrice);
+            changedProducts.add(product);
+        });
+    }
+
+    public boolean doesIdExist(UUID id){
+        Optional<Product> product = getProductById(id);
+        return product.isPresent();
+    }
+
+    public void validateProduct(Product product){
+        if(product == null){
+            throw new IllegalArgumentException("Product cannot be null.");
+        }
+    }
+
+    public static Warehouse getInstance(){
+        return getInstance("Default warehouse");
+    }
+
+    public static Warehouse getInstance(String name){
+        if (name == null || name.isBlank()){
+            throw new IllegalArgumentException("You must choose a name for the warehouse.");
+        }
+        return warehouse.computeIfAbsent(name, key -> new Warehouse());
+    }
+
+    private Warehouse(){}
+
+}
+
 
 /**
  * Analyzer class that provides advanced warehouse operations.
@@ -147,11 +414,20 @@ class WarehouseAnalyzer {
      */
     public List<Product> findPriceOutliers(double standardDeviations) {
         List<Product> products = warehouse.getProducts();
+        List<Product> robustProducts = products;
         int n = products.size();
         if (n == 0) return List.of();
-        double sum = products.stream().map(Product::price).mapToDouble(bd -> bd.doubleValue()).sum();
+        //Remove lowest and highest price to avoid outliers affecting mean
+        if(n >= 3){
+            List<Product> sortedProducts = products.stream()
+                    .sorted(Comparator.comparing(Product::price))
+                    .toList();
+            robustProducts = sortedProducts.subList(1, products.size() - 1);
+            n = n - 2;
+        }
+        double sum = robustProducts.stream().map(Product::price).mapToDouble(BigDecimal::doubleValue).sum();
         double mean = sum / n;
-        double variance = products.stream()
+        double variance = robustProducts.stream()
                 .map(Product::price)
                 .mapToDouble(bd -> Math.pow(bd.doubleValue() - mean, 2))
                 .sum() / n;
@@ -176,7 +452,7 @@ class WarehouseAnalyzer {
      */
     public List<ShippingGroup> optimizeShippingGroups(BigDecimal maxWeightPerGroup) {
         double maxW = maxWeightPerGroup.doubleValue();
-        List<Shippable> items = warehouse.shippableProducts();
+        List<Shippable> items = new ArrayList<>(warehouse.shippableProducts());
         // Sort by descending weight (First-Fit Decreasing)
         items.sort((a, b) -> Double.compare(Objects.requireNonNullElse(b.weight(), 0.0), Objects.requireNonNullElse(a.weight(), 0.0)));
         List<List<Shippable>> bins = new ArrayList<>();
@@ -290,6 +566,8 @@ class WarehouseAnalyzer {
         Product cheapest = items.stream().min(Comparator.comparing(Product::price)).orElse(null);
         return new InventoryStatistics(totalProducts, totalValue, averagePrice, expiredCount, categoryCount, mostExpensive, cheapest);
     }
+
+
 }
 
 /**
