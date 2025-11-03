@@ -1,7 +1,6 @@
 package com.example;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
@@ -414,32 +413,60 @@ class WarehouseAnalyzer {
      */
     public List<Product> findPriceOutliers(double standardDeviations) {
         List<Product> products = warehouse.getProducts();
-        List<Product> robustProducts = products;
         int n = products.size();
         if (n == 0) return List.of();
-        //Remove lowest and highest price to avoid outliers affecting mean
-        if(n >= 3){
-            List<Product> sortedProducts = products.stream()
-                    .sorted(Comparator.comparing(Product::price))
-                    .toList();
-            robustProducts = sortedProducts.subList(1, products.size() - 1);
-            n = n - 2;
-        }
-        double sum = robustProducts.stream().map(Product::price).mapToDouble(BigDecimal::doubleValue).sum();
-        double mean = sum / n;
-        double variance = robustProducts.stream()
+        List<Double> prices = products.stream()
                 .map(Product::price)
-                .mapToDouble(bd -> Math.pow(bd.doubleValue() - mean, 2))
-                .sum() / n;
-        double std = Math.sqrt(variance);
-        double threshold = standardDeviations * std;
+                .map(BigDecimal::doubleValue)
+                .toList();
+        double median = calculateMedian(prices);
+        List<Double> productDeviations = prices.stream()
+                .map(price -> Math.abs(price - median))
+                .toList();
+        double mad = calculateMedian(productDeviations);
+        double threshold = standardDeviations * mad;
         List<Product> outliers = new ArrayList<>();
         for (Product p : products) {
-            double diff = Math.abs(p.price().doubleValue() - mean);
+            double diff = Math.abs(p.price().doubleValue() - median);
             if (diff > threshold) outliers.add(p);
         }
         return outliers;
     }
+
+    public double calculateMedian(List<Double> products){
+        int size = products.size();
+        if (size == 1)
+            return products.getFirst();
+
+        double median;
+        List<Double> sortedProducts = products.stream().sorted().toList();
+        if(size % 2 == 0){
+            median = (sortedProducts.get(size / 2) + sortedProducts.get(size / 2 - 1)) / 2;
+        } else
+            median = sortedProducts.get(size / 2);
+
+        return median;
+    }
+
+//    public List<Product> findPriceOutliers(double standardDeviations) {
+//        List<Product> products = warehouse.getProducts();
+//        int n = products.size();
+//        if (n == 0) return List.of();
+//        double sum = products.stream().map(Product::price).mapToDouble(BigDecimal::doubleValue).sum();
+//        double mean = sum / n;
+//        double variance = products.stream()
+//                .map(Product::price)
+//                .mapToDouble(bd -> Math.pow(bd.doubleValue() - mean, 2))
+//                .sum() / n;
+//        double std = Math.sqrt(variance);
+//        double threshold = standardDeviations * std;
+//        List<Product> outliers = new ArrayList<>();
+//        for (Product p : products) {
+//            double diff = Math.abs(p.price().doubleValue() - mean);
+//            if (diff > threshold) outliers.add(p);
+//        }
+//        return outliers;
+//    }
     
     /**
      * Groups all shippable products into ShippingGroup buckets such that each group's total weight
